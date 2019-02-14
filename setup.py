@@ -37,7 +37,7 @@ class About:
 
 HOME = pathlib.Path(__file__).resolve().parent
 LIB = HOME / 'que'
-ABOUT = About.from_path(LIB / '__version__.py')
+ABOUT = About.from_path(LIB / '__about__.py')
 README = (HOME / 'README.md').read_text()
 
 
@@ -82,7 +82,7 @@ class UploadCommand(Command):
 
 
 setup(
-    name=ABOUT.title,
+    name=f"{ABOUT.title}-py",
     version=ABOUT.version,
     packages=[ABOUT.title],
     url=ABOUT.url,
@@ -100,7 +100,7 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3 :: Only'
+        'Programming Language :: Python :: 3 :: Only',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: SQL',
         'Topic :: Database',

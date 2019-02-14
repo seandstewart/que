@@ -103,7 +103,7 @@ VALUES
 QuickStart
 --------
 Que has no dependencies and is exceptionally light-weight, comprising of only a few hundred lines of code. 
-Installation is as simple as `pip3 install que`.
+Installation is as simple as `pip3 install que-py`.
 
 Then you're good to go! `import que` and rock on 🤘
 
@@ -130,7 +130,7 @@ class SpamClient:
     def __init__(self):
         self.conn = sqlite3.connect('sqlite://spam.db')
     
-    def insert_spam(self, spam: Spam) -> Spam:
+    def insert_spam(self, spam: Spam):
         fields = que.data_to_fields(spam, exclude=None)
         insert = que.Insert('spam', fields=fields)
         sql, args = insert.to_sql()
@@ -156,7 +156,7 @@ class SpamClient:
 
 Documentation
 ----------
-Check out the full documentation here!
+Full documentation coming soon!
 
 Happy Querying 🐍
 
