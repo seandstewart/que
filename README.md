@@ -24,7 +24,7 @@ Design
 -----
 The focus of Que is *simplicity*, just look at what it takes for a simple SELECT:
 
-```pydocstring
+```python
 >>> import que
 >>> select = que.Select(table='foo')
 >>> select
@@ -41,19 +41,19 @@ FROM
 Que works with the DBAPI client of your choice by parametrizing your sql and formatting your arguments
 for you:
 
-```pydocstring
+```python
 >>> import que
 >>> fields = [que.Field('bar')]
 >>> filters = [que.Filter(que.Field('id', 1))]
 >>> select = que.Select(table='foo', filters=filters, fields=fields)
 >>> sql, args = select.to_sql()
 >>> print(sql)
-    SELECT
-      bar
-    FROM
-      foo
-    WHERE
-      id = :1
+SELECT
+  bar
+FROM
+  foo
+WHERE
+  id = :1
 
 >>> args
 [1]
@@ -74,7 +74,7 @@ WHERE
 Que works to normalize the API for your SQL operations, so that initializing an INSERT or UPDATE is 
 functionally the same as initializing a SELECT:
 
-```pydocstring
+```python
 >>> import que
 >>> import dataclasses
 >>> import datetime
