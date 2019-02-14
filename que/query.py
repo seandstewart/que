@@ -117,7 +117,7 @@ class Filter:
 
     def __post_init__(self):
         try:
-            assert self.field.name and self.field.value, \
+            assert self.field.name and self.field.value is not None, \
                 f'{type(self).__name__}.field must have name and value.'
         except AssertionError as err:
             raise TypeError(err)
@@ -173,7 +173,7 @@ class FieldList(UserList):
 
     def asdict(self) -> Dict[str, Any]:
         """Return a mapping of ``Field.name->Field.value``."""
-        return {x.name: x.value for x in self}
+        return {x.name: x.value for x in self if x.name is not None}
 
     def fields(self) -> Tuple[str, ...]:
         """Return a tuple of ``Field.name``."""

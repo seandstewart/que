@@ -210,3 +210,8 @@ def test_data_to_fields_invalid():
     with pytest.raises(TypeError):
         que.data_to_fields(['foo'])
         que.data_to_fields([('foo',)])
+
+
+def test_write_invalid():
+    with pytest.raises(TypeError):
+        que.Insert('foo', fields=[que.Field(value='foo')])
