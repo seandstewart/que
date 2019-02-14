@@ -20,8 +20,7 @@ def default_select() -> que.Select:
 @pytest.fixture
 def default_insert() -> que.Insert:
     field = que.Field('foo', 'bar')
-    fylter = que.Filter(field)
-    insert = que.Insert(table='foo', schema='bar', fields=[field], filters=[fylter])
+    insert = que.Insert(table='foo', schema='bar', fields=[field])
     return insert
 
 
@@ -42,7 +41,7 @@ def default_field_list() -> que.FieldList:
 def default_delete() -> que.Delete:
     field = que.Field('foo', 'bar')
     fylter = que.Filter(field)
-    delete = que.Delete(table='foo', schema='bar', fields=[field], filters=[fylter])
+    delete = que.Delete(table='foo', schema='bar', filters=[fylter])
     return delete
 
 

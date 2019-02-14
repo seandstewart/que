@@ -269,9 +269,9 @@ class BaseSQLStatement:
     """A Base-class for simple SQL Statements (Select, Update, Insert, etc)"""
 
     def __post_init__(self):
-        if not isinstance(self.fields, FieldList):
+        if hasattr(self, 'fields') and not isinstance(self.fields, FieldList):
             self.fields = FieldList(self.fields)
-        if not isinstance(self.filters, FilterList):
+        if hasattr(self, 'filters') and not isinstance(self.filters, FilterList):
             self.filters = FilterList(self.filters)
 
     @property
