@@ -1,0 +1,8 @@
+__title__ = 'que'
+__description__ = 'Que: SQL for Sneks 🐍'
+__url__ = 'https://github.com/seandsetewart/que'
+__version__ = '1.0.0'
+__author__ = 'Sean Stewart'
+__author_email__ = 'sean_stewart@me.com'
+__license__ = 'MIT'
+__copyright__ = 'Copyright 2019 Sean Stewart'
