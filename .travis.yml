@@ -10,7 +10,7 @@ python:
 sudo: false
 # command to install dependencies
 install:
-  - pip install pytest pytest-cov
+  - pip install pytest codecov pytest-cov
 # command to run tests
 script:
   - py.test --cov-report=xml --cov=que tests/
