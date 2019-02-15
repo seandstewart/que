@@ -16,4 +16,4 @@ exclude_lines =
     if __name__ == .__main__.:
 
 [tool:pytest]
-addopts = --cov=./ --cov-report xml
+addopts = --cov=que/ --cov-report xml
