@@ -13,7 +13,7 @@ install:
   - pip install pytest codecov pytest-cov
 # command to run tests
 script:
-  - py.test --cov-config=.coveragerc tests/
+  - py.test --cov-config=.coveragerc --cov=./ --cov-report xml tests/
 # report coverage
 after_success:
 - codecov
