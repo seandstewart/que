@@ -1,5 +1,11 @@
 Que: SQL for Sneks 🐍
-==========================
+================
+[![image](https://img.shields.io/pypi/v/que-py.svg)](https://pypi.org/project/que-py/)
+[![image](https://img.shields.io/pypi/l/que-py.svg)](https://pypi.org/project/que-py/)
+[![image](https://img.shields.io/pypi/pyversions/que-py.svg)](https://pypi.org/project/que-py/)
+[![image](https://img.shields.io/travis/seandstewart/que.svg)](https://travis-ci.org/seandstewart/que)
+[![codecov](https://codecov.io/gh/seandstewart/que/branch/master/graph/badge.svg)](https://codecov.io/gh/seandstewart/que)
+
 Que allows you to get generate your SQL queries on the fly, without the overhead of a fully-fledged ORM.
 
 Motivations
