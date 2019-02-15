@@ -222,6 +222,13 @@ def test_append_fieldlist_invalid():
         que.FieldList().append('foo')
 
 
+def test_append_filterlist():
+    fylter = que.Filter(que.Field('foo', 'bar'))
+    lyst = que.FilterList()
+    lyst.append(fylter)
+    assert fylter in lyst
+
+
 def test_append_filterlist_invalid():
     with pytest.raises(TypeError):
         que.FilterList().append('foo')
