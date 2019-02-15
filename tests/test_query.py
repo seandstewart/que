@@ -209,6 +209,7 @@ def test_data_to_fields_empty():
 def test_data_to_fields_invalid():
     with pytest.raises(TypeError):
         que.data_to_fields(['foo'])
+    with pytest.raises(TypeError):
         que.data_to_fields([('foo',)])
 
 
