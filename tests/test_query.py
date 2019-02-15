@@ -215,3 +215,13 @@ def test_data_to_fields_invalid():
 def test_write_invalid():
     with pytest.raises(TypeError):
         que.Insert('foo', fields=[que.Field(value='foo')])
+
+
+def test_append_fieldlist_invalid():
+    with pytest.raises(TypeError):
+        que.FieldList().append('foo')
+
+
+def test_append_filterlist_invalid():
+    with pytest.raises(TypeError):
+        que.FilterList().append('foo')
