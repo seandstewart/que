@@ -3,6 +3,7 @@ Que: SQL for Sneks 🐍
 [![image](https://img.shields.io/pypi/v/que-py.svg)](https://pypi.org/project/que-py/)
 [![image](https://img.shields.io/pypi/l/que-py.svg)](https://pypi.org/project/que-py/)
 [![image](https://img.shields.io/pypi/pyversions/que-py.svg)](https://pypi.org/project/que-py/)
+[![image](https://img.shields.io/github/languages/code-size/seandstewart/que.svg?style=flat)](https://github.com/seandstewart/que)
 [![image](https://img.shields.io/travis/seandstewart/que.svg)](https://travis-ci.org/seandstewart/que)
 [![codecov](https://codecov.io/gh/seandstewart/que/branch/master/graph/badge.svg)](https://codecov.io/gh/seandstewart/que)
 
@@ -28,7 +29,7 @@ written just for you.
 
 Design
 -----
-The focus of Que is *simplicity*, just look at what it takes for a simple SELECT:
+The focus of Que is *simplicity*, just look at what it takes for a simple `SELECT`:
 
 ```python
 >>> import que
@@ -77,8 +78,8 @@ WHERE
 
 ```
 
-Que works to normalize the API for your SQL operations, so that initializing an INSERT or UPDATE is 
-functionally the same as initializing a SELECT:
+Que works to normalize the API for your SQL operations, so that initializing an `INSERT` or `UPDATE` is 
+functionally the same as initializing a `SELECT`:
 
 ```python
 >>> import que
@@ -108,7 +109,7 @@ VALUES
  
 QuickStart
 --------
-Que has no dependencies and is exceptionally light-weight, comprising of only a few hundred lines of code. 
+Que has no dependencies and is exceptionally light-weight (currently only ~30Kb!), comprising of only a few hundred lines of code. 
 Installation is as simple as `pip3 install que-py`.
 
 Then you're good to go! `import que` and rock on 🤘
