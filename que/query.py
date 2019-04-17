@@ -410,7 +410,11 @@ class Insert(_BaseWriteStatement):
     returns: Field = None
 
     @staticmethod
-    def _fields_to_sql(fields: FieldList, style: ParamStyleType, args: ArgList) -> str:
+    def _fields_to_sql(fields: FieldList, style: ParamStyleType, args: ArgList, inject: bool = False) -> str:
+        # Override DBAPI formatting. This is dangerous, but required for columns on insert statements in some clients.
+        if inject:
+            return f"({', '.join(fields.values())})"
+
         stmnts = []
         for field in fields:
             # convert the enum to str
@@ -427,7 +431,12 @@ class Insert(_BaseWriteStatement):
         # return them as a single, SQL-compliant fragment
         return f"({stmnts})" if stmnts else ""
 
-    def build_insert(self, style: ParamStyleType = DEFAULT_PARAM_STYLE) -> Tuple[str, ArgList]:
+    def build_insert(
+        self,
+        style: ParamStyleType = DEFAULT_PARAM_STYLE,
+        *,
+        inject_columns: bool = False
+    ) -> Tuple[str, ArgList]:
         """Build a SQL INSERT statement.
 
         We create two new :class:`FieldList` - one for column declaration and one for values declaration.
@@ -440,6 +449,9 @@ class Insert(_BaseWriteStatement):
         --------
         style : defaults :class:`NumParamStyle.NUM`
             The DBAPI 2.0 param-style.
+        inject_columns: defaults False
+            Inject the column names directly, rather than rely on DBAPI formatting.
+            This is necessary for some client, such as ``asyncpg``.
 
         Returns
         -----
@@ -448,8 +460,8 @@ class Insert(_BaseWriteStatement):
         """
         columns = FieldList([Field(f"col{x.name}", x.name) for x in self.fields])
         values = FieldList([Field(f"val{x.name}", x.value) for x in self.fields])
-        args = ArgList(columns + values)
-        insert_sql = self._fields_to_sql(columns, style, args)
+        args = ArgList(values) if inject_columns else ArgList(columns + values)
+        insert_sql = self._fields_to_sql(columns, style, args, inject=inject_columns)
         values_sql = self._fields_to_sql(values, style, args)
         returning = self.get_returning()
         return (
@@ -458,20 +470,27 @@ class Insert(_BaseWriteStatement):
             f"{returning}"
         ), args
 
-    def to_sql(self, style: ParamStyleType = DEFAULT_PARAM_STYLE) -> Tuple[str, Union[List, Dict]]:
+    def to_sql(
+        self,
+        style: ParamStyleType = DEFAULT_PARAM_STYLE,
+        inject_columns: bool = False
+    ) -> Tuple[str, Union[List, Dict]]:
         """Build the SQL INSERT statement and format the list of arguments to pass to the DB client.
 
         Parameters
         --------
         style : defaults :class:`NumParamStyle.NUM`
             The DBAPI 2.0 param-style.
+        inject_columns: defaults False
+            Inject the column names directly, rather than rely on DBAPI formatting.
+            This is necessary for some client, such as ``asyncpg``.
 
         Returns
         -----
         The generated SQL INSERT statement
         The arguments to pass to the DB client for secure formatting.
         """
-        query, args = self.build_insert(style)
+        query, args = self.build_insert(style, inject_columns=inject_columns)
         return query, args.for_sql(style)
 
 

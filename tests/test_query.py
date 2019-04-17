@@ -149,6 +149,11 @@ def test_insert_default_style(default_insert):
     assert sql == 'INSERT INTO\n  bar.foo (:1)\nVALUES\n  (:2)\n'
 
 
+def test_insert_inject_columns(default_insert):
+    sql, args = default_insert.to_sql(inject_columns=True)
+    assert sql == 'INSERT INTO\n  bar.foo (foo)\nVALUES\n  (:1)\n'
+
+
 def test_insert_dollar_style(default_insert):
     sql, args = default_insert.to_sql(que.NumParamStyle.DOL)
     assert sql == 'INSERT INTO\n  bar.foo ($1)\nVALUES\n  ($2)\n'
