@@ -5,11 +5,22 @@ import os
 import inspect
 import ast
 from functools import partial
-from typing import Dict, Any, Sequence, Optional, Union, Tuple, Hashable, Callable, Mapping
+from typing import (
+    Dict,
+    Any,
+    Sequence,
+    Optional,
+    Union,
+    Tuple,
+    Hashable,
+    Callable,
+    Mapping,
+)
 
 
 class Nothing:
     """A placeholder to indicate no value has been given for a parameter"""
+
     pass
 
 
@@ -22,11 +33,15 @@ class DictFactory:
     >>> dict_factory({'x': 0, 'y': None}, exclude=None)
     {'x': 0}
     """
-    def __new__(cls, exclude: Optional[Any] = Nothing) -> 'factory':
+
+    def __new__(cls, exclude: Optional[Any] = Nothing) -> "factory":
         return partial(cls.factory, exclude=exclude)
 
     @staticmethod
-    def factory(obj: Union[Dict, Sequence[Tuple[Hashable, Any]]], exclude: Optional[Any] = Nothing) -> Dict:
+    def factory(
+        obj: Union[Dict, Sequence[Tuple[Hashable, Any]]],
+        exclude: Optional[Any] = Nothing,
+    ) -> Dict:
         """Produce a dictionary from a supplied object. Optionally exclude a specific value or type from the output
 
         Examples
@@ -44,7 +59,11 @@ class DictFactory:
 
         def _cmp(val):
             """Set the comparator"""
-            return isinstance(val, exclude) if isinstance(exclude, type) else val == exclude
+            return (
+                isinstance(val, exclude)
+                if isinstance(exclude, type)
+                else val == exclude
+            )
 
         return dict(((x, y) for x, y in obj if _cmp(y) is False))
 
@@ -71,8 +90,4 @@ def isnamedtuple(x: Any) -> bool:
     >>> isnamedtuple(tuple())
     False
     """
-    return (
-        isinstance(x, tuple) and
-        hasattr(x, '_fields') and
-        hasattr(x, '_asdict')
-    )
+    return isinstance(x, tuple) and hasattr(x, "_fields") and hasattr(x, "_asdict")
