@@ -1,4 +1,4 @@
-from .query import (
+from .query import (  # noqa: F401 - we're defining the public package
     MathOps,
     BitOps,
     CmpOps,
@@ -18,4 +18,4 @@ from .query import (
     Delete,
     data_to_fields,
 )
-from .__about__ import __version__
+from .__about__ import __version__  # noqa: F401

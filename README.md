@@ -7,29 +7,34 @@ Que: SQL for Sneks 🐍
 [![image](https://img.shields.io/travis/seandstewart/que.svg)](https://travis-ci.org/seandstewart/que)
 [![codecov](https://codecov.io/gh/seandstewart/que/branch/master/graph/badge.svg)](https://codecov.io/gh/seandstewart/que)
 
-Que allows you to get generate your SQL queries on the fly, without the overhead of a fully-fledged ORM.
+Que allows you to get generate your SQL queries on the fly, without the
+overhead of a fully-fledged ORM.
 
 Motivations
 --------
-Que was born out of a need for dynamically generated SQL for an ASGI web service. I found my self wishing
-for the convenience of dynamic querying with an ORM such as SQLAlchemy, but the performance of a fully
-asynchronous database client. Que attempts to fill this void. Choose the connection client you prefer and
-let Que worry about the SQL.
+Que was born out of a need for dynamically generated SQL for an ASGI web
+service. I found my self wishing for the convenience of dynamic querying
+with an ORM such as SQLAlchemy, but the performance of a fully
+asynchronous database client. Que attempts to fill this void. Choose the
+connection client you prefer and let Que worry about the SQL.
 
 
 What Is It?
 ---------
-Que looks to solve a single purpose: generate SQL-compliant queries in pure-Python. Que has absolutely no
-hard dependendencies and does not enforce the use of a specific database client or dialect.
+Que looks to solve a single purpose: generate SQL-compliant queries in 
+pure-Python. Que has absolutely no hard dependendencies and does not
+enforce the use of a specific database client or dialect.
 
-Still want to use SQLAlchemy for your connection? Go for it. Want to use PyMySQL or psycopg2? Que won't
-stop you. Want to use an asyncio framework such as aiopg? You have excellent taste! This library was 
+Still want to use SQLAlchemy for your connection? Go for it. Want to use
+PyMySQL or psycopg2? Que won't stop you. Want to use an asyncio
+framework such as aiopg? You have excellent taste! This library was
 written just for you.
 
 
 Design
 -----
-The focus of Que is *simplicity*, just look at what it takes for a simple `SELECT`:
+The focus of Que is *simplicity*, just look at what it takes for a 
+simple `SELECT`:
 
 ```python
 >>> import que
@@ -45,8 +50,8 @@ FROM
 
 ```
 
-Que works with the DBAPI client of your choice by parametrizing your sql and formatting your arguments
-for you:
+Que works with the DBAPI client of your choice by parametrizing your sql
+and formatting your arguments for you:
 
 ```python
 >>> import que
@@ -78,8 +83,9 @@ WHERE
 
 ```
 
-Que works to normalize the API for your SQL operations, so that initializing an `INSERT` or `UPDATE` is 
-functionally the same as initializing a `SELECT`:
+Que works to normalize the API for your SQL operations, so that 
+initializing an `INSERT` or `UPDATE` is functionally the same as
+initializing a `SELECT`:
 
 ```python
 >>> import que
@@ -109,7 +115,8 @@ VALUES
  
 QuickStart
 --------
-Que has no dependencies and is exceptionally light-weight (currently only ~30Kb!), comprising of only a few hundred lines of code. 
+Que has no dependencies and is exceptionally light-weight (currently
+only ~30Kb!), comprising of only a few hundred lines of code.
 Installation is as simple as `pip3 install que-py`.
 
 Then you're good to go! `import que` and rock on 🤘
@@ -172,8 +179,9 @@ How to Contribute
 -----------------
 1.  Check for open issues or open a fresh issue to start a discussion
     around a feature idea or a bug. 
-2.  Create a branch on Github for your issue or fork [the repository](https://github.com/seandstewart/que) 
-    on GitHub to start making your changes to the **master** branch.
+2.  Create a branch on Github for your issue or fork 
+    [the repository](https://github.com/seandstewart/que) on GitHub to
+    start making your changes to the **master** branch.
 3.  Write a test which shows that the bug was fixed or that the feature
     works as expected.
 4.  Send a pull request and bug the maintainer until it gets merged and
