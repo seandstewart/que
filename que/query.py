@@ -171,7 +171,9 @@ class Filter:
         args.append(self.field)
         fmt = f"{style}"
         if style in NameParamStyle:
-            fmt = fmt.format(f"{self.prefix}{self.field.name}")
+            name = f"{self.prefix}{self.field.name}"
+            fmt = fmt.format(name)
+            args[-1] = dataclasses.replace(self.field, name=name)
         elif style in NumParamStyle:
             fmt = fmt.format(len(args))
         return f"{self.field.name} {self.opcode} {fmt}", args

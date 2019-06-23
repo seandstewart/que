@@ -111,31 +111,37 @@ def test_delete_get_returning(default_delete):
 def test_update_default_style(default_update):
     sql, args = default_update.to_sql()
     assert sql == "UPDATE\n  bar.foo\nSET\n  foo = :1\nWHERE\n  foo = :2\n"
+    assert len(args) == 2
 
 
 def test_update_dollar_style(default_update):
     sql, args = default_update.to_sql(que.NumParamStyle.DOL)
     assert sql == "UPDATE\n  bar.foo\nSET\n  foo = $1\nWHERE\n  foo = $2\n"
+    assert len(args) == 2
 
 
 def test_update_name_style(default_update):
     sql, args = default_update.to_sql(que.NameParamStyle.NAME)
     assert sql == "UPDATE\n  bar.foo\nSET\n  foo = :colfoo\nWHERE\n  foo = :foo\n"
+    assert set(args) == {"colfoo", "foo"}
 
 
 def test_update_pyformat_style(default_update):
     sql, args = default_update.to_sql(que.NameParamStyle.PYFM)
     assert sql == "UPDATE\n  bar.foo\nSET\n  foo = %(colfoo)s\nWHERE\n  foo = %(foo)s\n"
+    assert set(args) == {"colfoo", "foo"}
 
 
 def test_update_format_style(default_update):
     sql, args = default_update.to_sql(que.BasicParamStyle.FM)
     assert sql == "UPDATE\n  bar.foo\nSET\n  foo = %s\nWHERE\n  foo = %s\n"
+    assert len(args) == 2
 
 
 def test_update_qmark_style(default_update):
     sql, args = default_update.to_sql(que.BasicParamStyle.QM)
     assert sql == "UPDATE\n  bar.foo\nSET\n  foo = ?\nWHERE\n  foo = ?\n"
+    assert len(args) == 2
 
 
 def test_update_get_returning(default_update):
@@ -152,31 +158,37 @@ def test_insert_default_style(default_insert):
 def test_insert_inject_columns(default_insert):
     sql, args = default_insert.to_sql(inject_columns=True)
     assert sql == "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (:1)\n"
+    assert len(args) == 1
 
 
 def test_insert_dollar_style(default_insert):
     sql, args = default_insert.to_sql(que.NumParamStyle.DOL)
     assert sql == "INSERT INTO\n  bar.foo ($1)\nVALUES\n  ($2)\n"
+    assert len(args) == 2
 
 
 def test_insert_name_style(default_insert):
     sql, args = default_insert.to_sql(que.NameParamStyle.NAME)
     assert sql == "INSERT INTO\n  bar.foo (:colfoo)\nVALUES\n  (:valfoo)\n"
+    assert set(args) == {"colfoo", "valfoo"}
 
 
 def test_insert_pyformat_style(default_insert):
     sql, args = default_insert.to_sql(que.NameParamStyle.PYFM)
     assert sql == "INSERT INTO\n  bar.foo (%(colfoo)s)\nVALUES\n  (%(valfoo)s)\n"
+    assert set(args) == {"colfoo", "valfoo"}
 
 
 def test_insert_format_style(default_insert):
     sql, args = default_insert.to_sql(que.BasicParamStyle.FM)
     assert sql == "INSERT INTO\n  bar.foo (%s)\nVALUES\n  (%s)\n"
+    assert len(args) == 2
 
 
 def test_insert_qmark_style(default_insert):
     sql, args = default_insert.to_sql(que.BasicParamStyle.QM)
     assert sql == "INSERT INTO\n  bar.foo (?)\nVALUES\n  (?)\n"
+    assert len(args) == 2
 
 
 def test_insert_get_returning(default_insert):

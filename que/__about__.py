@@ -1,7 +1,7 @@
 __title__ = "que"
 __description__ = "Que: SQL for Sneks 🐍"
 __url__ = "https://github.com/seandstewart/que"
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __author__ = "Sean Stewart"
 __author_email__ = "sean_stewart@me.com"
 __license__ = "MIT"
