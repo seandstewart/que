@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "que"
+version = "1.1.1"
+description = "Que: SQL for Sneks 🐍"
+authors = ["Sean Stewart <sean_stewart@me.com>"]
+license = "MIT"
+readme = "README.md"
+include = ["LICENSE", "README.md"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: SQL",
+    "Topic :: Database",
+    "Topic :: Database :: Front-Ends",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Utilities",
+]
+
+[tool.poetry.dependencies]
+python = "~3.6.1"
+cached_property = {version = "^1.5.1", python = "<3.8"}
+dataclasses = {version = "*", python = "~3.6"}
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.4.1"
+pre-commit = "^2.5.1"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"

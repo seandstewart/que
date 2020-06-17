@@ -1,57 +1,46 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
-from functools import partial
-from typing import Dict, Any, Sequence, Optional, Union, Tuple, Hashable
+from typing import Any, Optional
+from collections.abc import Mapping
 
 
-class Nothing:
-    """A placeholder to indicate no value has been given for a parameter"""
+class SentinelType(type):
+    """A metaclass for generating a false-y sentinel value
 
-    pass
-
-
-class DictFactory:
-    """A factory for producing a dictionary with optional exclusions
-
-    Examples
-    --------
-    >>> dict_factory = DictFactory(exclude=None)
-    >>> dict_factory({'x': 0, 'y': None}, exclude=None)
-    {'x': 0}
+    Useful when a null (None) value is meaningful.
     """
 
-    def __new__(cls, exclude: Optional[Any] = Nothing) -> "factory":
-        return partial(cls.factory, exclude=exclude)
+    def __new__(typ, name):
+        return super().__new__(typ, name, (), {})
 
-    @staticmethod
-    def factory(
-        obj: Union[Dict, Sequence[Tuple[Hashable, Any]]],
-        exclude: Optional[Any] = Nothing,
-    ) -> Dict:
-        """Produce a dictionary from a supplied object. Optionally exclude a specific value or type from the output
+    def __repr__(cls):
+        return f"<{cls.__name__}>"
 
-        Examples
-        --------
-        >>> DictFactory.factory({'x': 0, 'y': None}, exclude=None)
-        {'x': 0}
-        >>> DictFactory.factory([('x', 0), ('y', None)], exclude=int)
-        {'y': None}
-        """
-        if isinstance(obj, Dict) and exclude is Nothing:
-            # Don't do anything if we don't have to
-            return obj
-        # coerce Dict to simplify transformation
-        obj = obj.items() if isinstance(obj, Dict) else obj
+    @classmethod
+    def __bool__(cls):
+        return False
 
-        def _cmp(val):
-            """Set the comparator"""
-            return (
-                isinstance(val, exclude)
-                if isinstance(exclude, type)
-                else val == exclude
-            )
 
-        return dict(((x, y) for x, y in obj if _cmp(y) is False))
+Unset = SentinelType("unset")
+
+
+def dict_filter_factory(exclude: Optional[Any] = Unset, astype: bool = False):
+    if exclude is Unset:
+        return dict
+
+    if isinstance(exclude, type) or astype:
+
+        def filter(obj, *, __exclude=exclude):
+            items = obj.items() if isinstance(obj, Mapping) else obj
+            return {x: y for x, y in items if not isinstance(y, __exclude)}
+
+        return filter
+
+    def filter(obj, *, __exclude=exclude):
+        items = obj.items() if isinstance(obj, Mapping) else obj
+        return {x: y for x, y in items if y != exclude}
+
+    return filter
 
 
 def isnamedtuple(x: Any) -> bool:

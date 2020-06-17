@@ -4,7 +4,7 @@ Que: SQL for Sneks 🐍
 [![image](https://img.shields.io/pypi/l/que-py.svg)](https://pypi.org/project/que-py/)
 [![image](https://img.shields.io/pypi/pyversions/que-py.svg)](https://pypi.org/project/que-py/)
 [![image](https://img.shields.io/github/languages/code-size/seandstewart/que.svg?style=flat)](https://github.com/seandstewart/que)
-[![image](https://img.shields.io/travis/seandstewart/que.svg)](https://travis-ci.org/seandstewart/que)
+[![Test & Lint](https://github.com/seandstewart/que/workflows/Test%20&%20Lint/badge.svg)](https://github.com/seandstewart/que/actions)
 [![codecov](https://codecov.io/gh/seandstewart/que/branch/master/graph/badge.svg)](https://codecov.io/gh/seandstewart/que)
 
 Que allows you to get generate your SQL queries on the fly, without the
@@ -21,7 +21,7 @@ connection client you prefer and let Que worry about the SQL.
 
 What Is It?
 ---------
-Que looks to solve a single purpose: generate SQL-compliant queries in 
+Que looks to solve a single purpose: generate SQL-compliant queries in
 pure-Python. Que has absolutely no hard dependendencies and does not
 enforce the use of a specific database client or dialect.
 
@@ -33,7 +33,7 @@ written just for you.
 
 Design
 -----
-The focus of Que is *simplicity*, just look at what it takes for a 
+The focus of Que is *simplicity*, just look at what it takes for a
 simple `SELECT`:
 
 ```python
@@ -54,9 +54,10 @@ Que works with the DBAPI client of your choice by parametrizing your sql
 and formatting your arguments for you:
 
 ```python
+```python
 >>> import que
 >>> fields = [que.Field('bar')]
->>> filters = [que.Filter(que.Field('id', 1))]
+>>> filters = [que.Expression(que.Field('id', 1))]
 >>> select = que.Select(table='foo', filters=filters, fields=fields)
 >>> sql, args = select.to_sql()
 >>> print(sql)
@@ -83,7 +84,7 @@ WHERE
 
 ```
 
-Que works to normalize the API for your SQL operations, so that 
+Que works to normalize the API for your SQL operations, so that
 initializing an `INSERT` or `UPDATE` is functionally the same as
 initializing a `SELECT`:
 
@@ -112,7 +113,7 @@ VALUES
 {'colbar': 'bar', 'valbar': 'blah'}
 
 ```
- 
+
 QuickStart
 --------
 Que has no dependencies and is exceptionally light-weight (currently
@@ -152,7 +153,7 @@ class SpamClient:
     
     def get_spam(self, **kwargs):
         fields = que.data_to_fields(kwargs)
-        filters = [que.Filter(x) for x in fields]
+        filters = [que.Expression(x) for x in fields]
         select = que.Select('spam', filters=filters)
         return self.conn.execute(*select.to_sql())
     
@@ -178,8 +179,8 @@ Happy Querying 🐍
 How to Contribute
 -----------------
 1.  Check for open issues or open a fresh issue to start a discussion
-    around a feature idea or a bug. 
-2.  Create a branch on Github for your issue or fork 
+    around a feature idea or a bug.
+2.  Create a branch on Github for your issue or fork
     [the repository](https://github.com/seandstewart/que) on GitHub to
     start making your changes to the **master** branch.
 3.  Write a test which shows that the bug was fixed or that the feature

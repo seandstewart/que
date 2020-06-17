@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
+import abc
 import dataclasses
 import enum
 from typing import (
     List,
     Tuple,
     Union,
-    NewType,
     Any,
     Dict,
     Mapping,
@@ -14,10 +14,22 @@ from typing import (
     Hashable,
     Type,
     NamedTuple,
+    Iterator,
+    Iterable,
+    Optional,
+    Sized,
 )
-from collections import UserList
 
-from .util import DictFactory, isnamedtuple, Nothing
+from .compat import cached_property
+from .util import isnamedtuple, Unset, dict_filter_factory
+
+
+class SQLSyntaxError(SyntaxError):
+    ...
+
+
+class SQLValueError(ValueError):
+    ...
 
 
 class MathOps(str, enum.Enum):
@@ -94,13 +106,26 @@ class NameParamStyle(str, enum.Enum):
     PYFM = "%({})s"
 
 
-ParamStyleType = NewType(
-    "ParamStyleType", Union[BasicParamStyle, NumParamStyle, NameParamStyle]
-)
+SQLOpsT = Union[CmpOps, LogOps, BitOps, MathOps]
+ParamStyleT = Union[BasicParamStyle, NumParamStyle, NameParamStyle]
 DEFAULT_PARAM_STYLE = NumParamStyle.NUM
 
 
-@dataclasses.dataclass
+class AbstractSQL(abc.ABC):
+    @abc.abstractmethod
+    def to_sql(self, *args, **kwargs) -> Tuple[str, "Arguments"]:
+        ...
+
+    @cached_property
+    def as_sql(self) -> Tuple[str, "Arguments"]:
+        return self.to_sql()
+
+    @staticmethod
+    def get_offset(col: Sized, cur: int = 1) -> int:
+        return len(col) + cur
+
+
+@dataclasses.dataclass(frozen=True)
 class Field:
     """A generic Field for a SQL statement.
 
@@ -108,29 +133,28 @@ class Field:
     the fields which you plan to select or modify or the fields which you wish to filter by.
     """
 
-    name: str = None
-    value: Any = None
+    left: Union[str, Unset] = Unset
+    right: Union[Any, Unset] = Unset
 
     def __post_init__(self):
-        try:
-            assert (
-                self.name or self.value
-            ), f"{type(self).__name__}.name or {type(self).__name__}.value must be provided"
-        except AssertionError as err:
-            raise TypeError(err)
+        if {self.left, self.right} == {Unset, Unset}:
+            tname = self.__class__
+            raise SQLSyntaxError(f"{tname}.left or {tname}.right must be provided")
 
-    def for_fetch(self) -> str:
-        """Generate valid SQL for a ``Field`` if it is being used in a SELECT or RETURNING statement."""
-        return (
-            f"{self.name} AS {self.value}"
-            if (self.value and self.name)
-            else (self.name or self.value)
-        )
+    @cached_property
+    def fetch_sql(self) -> str:
+        """A `Field` as represented in a SQL `SELECT` or `RETURNING` statement."""
+        if self.left is not Unset:
+            # If we have a `value`, treat it as an alias.
+            if self.right:
+                return f"{self.left} AS {self.right}"
+            return self.left
+        return self.right
 
 
-@dataclasses.dataclass
-class Filter:
-    """An object representation of a simple SQL filter.
+@dataclasses.dataclass(frozen=True)
+class Expression(AbstractSQL):
+    """An object representation of a simple SQL expression.
 
     The ``Filter`` builds upon the :class:`Field` object.
         - The ``Filter.field`` provides the name of the column and the value of the filter.
@@ -143,16 +167,17 @@ class Filter:
     prefix: str = ""
 
     def __post_init__(self):
-        try:
-            assert (
-                self.field.name and self.field.value is not None
-            ), f"{type(self).__name__}.field must have name and value."
-        except AssertionError as err:
-            raise TypeError(err)
+        if self.field.left is Unset:
+            raise SQLSyntaxError(
+                f"{self.__class__.__name__}.field.name must be provided."
+            )
 
     def to_sql(
-        self, args: "ArgList" = None, style: ParamStyleType = DEFAULT_PARAM_STYLE
-    ) -> Tuple[str, "ArgList"]:
+        self,
+        args: "Arguments" = None,
+        style: ParamStyleT = DEFAULT_PARAM_STYLE,
+        offset: int = 1,
+    ) -> Tuple[str, "Arguments"]:
         """Generate a single filter clause of a SQL Statement.
 
         Parameters
@@ -167,76 +192,103 @@ class Filter:
         The SQL fragment, as str
         The :class:`ArgList` which will be passed on to the DB client for secure formatting.
         """
-        args = args or ArgList()
-        args.append(self.field)
-        fmt = f"{style}"
+        args = Arguments() if args is None else args
+        fmt = style.value
+        field = self.field
         if style in NameParamStyle:
-            name = f"{self.prefix}{self.field.name}"
+            name = f"{self.prefix}{field.left}"
             fmt = fmt.format(name)
-            args[-1] = dataclasses.replace(self.field, name=name)
+            field = dataclasses.replace(field, left=name)
         elif style in NumParamStyle:
-            fmt = fmt.format(len(args))
-        return f"{self.field.name} {self.opcode} {fmt}", args
+            fmt = fmt.format(offset)
+        args.append(field)
+        return f"{self.field.left} {self.opcode} {fmt}", args
 
 
-class FieldList(UserList):
-    """A list of SQL Fields with some convenience methods.
+class Fields:
+    """A container of SQL Fields with some convenience methods.
 
     A custom list implementation for housing :class:`Field`.
     """
 
-    def __init__(self, initlist: Collection[Field] = None):
+    def __init__(self, fields: Iterable[Field] = ()):
         """The Constructor.
 
         Parameters
         ----------
-        initlist : optional
+        fields : optional
             A collection of :class:`Field`
         """
-        initlist = initlist or []
-        super().__init__(initlist)
+        self.fields = (*fields,) if not isinstance(fields, tuple) else fields
+
+    def __eq__(self, other: "Fields"):
+        try:
+            return self.fields == other.fields
+        except AttributeError:
+            return super().__eq__(other)
 
     def __repr__(self):
-        return f"{type(self).__name__}([{', '.join(str(x) for x in self)}])"
+        return f"{self.__class__.__name__}({self.fields.__repr__()})"
 
+    def __iter__(self):
+        yield from self.fields.__iter__()
+
+    def __len__(self):
+        return len(self.fields)
+
+    def iter_right_values(self) -> Iterator[Any]:
+        for x in self:
+            yield x.right
+
+    def iter_left_values(self) -> Iterator[str]:
+        for x in self:
+            yield x.left
+
+    @cached_property
     def aslist(self) -> List[Any]:
         """Return only a list of ``Field.value``."""
-        return list(self.values())
+        return [*self.iter_right_values()]
 
+    @cached_property
     def asdict(self) -> Dict[str, Any]:
         """Return a mapping of ``Field.name->Field.value``."""
-        return {x.name: x.value for x in self if x.name is not None}
+        return {x.left: x.right for x in self if x.left is not Unset}
 
-    def fields(self) -> Tuple[str, ...]:
+    @cached_property
+    def left(self) -> Tuple[str, ...]:
         """Return a tuple of ``Field.name``."""
-        return tuple(x.name for x in self if x.name is not None)
+        return (*(self.iter_left_values()),)
 
-    def values(self) -> Tuple[Any, ...]:
+    @cached_property
+    def right(self) -> Tuple[Any, ...]:
         """Return a tuple of ``Field.value``."""
-        return tuple(x.value for x in self)
-
-    def append(self, item: Field):
-        """Append a :class:`Field` to the list.
-
-        Raises
-        -----
-        TypeError
-            If the item sent to be appended is not a :class:`Field`
-        """
-        if not isinstance(item, Field):
-            raise TypeError(f"{type(self).__name__} requires type Field.")
-        super().append(item)
+        return (*(self.iter_right_values()),)
 
 
-class ArgList(FieldList):
+class Arguments:
     """An alias for :class:`FieldList` for mental clarity.
 
     Also provides a convenience method for outputting your args in the appropriate format
     for the selected style
     """
 
+    def __init__(self, fields: Fields = None):
+        self.fields = fields or Fields()
+
+    def __len__(self):
+        return len(self.fields)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.fields.__repr__()})"
+
+    def append(self, field: Field):
+        self.fields = Fields((*self.fields, field))
+
+    def add(self, arguments: "Arguments") -> "Arguments":
+        return Arguments(Fields((*self.fields, *arguments.fields)))
+
     def for_sql(
-        self, style: ParamStyleType = DEFAULT_PARAM_STYLE
+        self, style: ParamStyleT = DEFAULT_PARAM_STYLE
     ) -> Union[Dict[str, Any], List[Any]]:
         """Output the list of args in the appropriate format for the param-style.
 
@@ -246,38 +298,41 @@ class ArgList(FieldList):
             The enum selection which matches your param-style.
         """
         if style in NameParamStyle:
-            return self.asdict()
-        return self.aslist()
+            return self.fields.asdict
+        return self.fields.aslist
 
 
-class FilterList(UserList):
+class Expressions(AbstractSQL):
     """A list of SQL Filters which with SQL statement generation.
 
     A custom list implementation for housing :class:`Filter`.
     """
 
-    def __init__(self, initlist: Collection[Filter] = None):
-        initlist = initlist or []
-        super().__init__(initlist)
+    def __init__(self, expressions: Iterable[Expression] = ()):
+        self.expressions = (
+            (*expressions,) if not isinstance(expressions, tuple) else expressions
+        )
 
     def __repr__(self):
-        return f"{type(self).__name__}([{', '.join(str(x) for x in self)}])"
+        return f"{self.__class__.__name__}({self.expressions.__repr__()})"
 
-    def append(self, item: Filter):
-        """Append a :class:`Filter` to the list.
+    def __iter__(self):
+        yield from self.expressions.__iter__()
 
-        Raises
-        -----
-        TypeError
-            If the item sent to be appended is not a :class:`Filter`
-        """
-        if not isinstance(item, Filter):
-            raise TypeError(f"{type(self).__name__} requires type Filter.")
-        super().append(item)
+    def iter_sql(
+        self, args: Arguments, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
+    ) -> Iterator[str]:
+        for i, fylter in enumerate(self, start=offset):
+            sql, args = fylter.to_sql(args, style, offset=i)
+            yield sql
 
     def to_sql(
-        self, args: ArgList = None, style: ParamStyleType = DEFAULT_PARAM_STYLE
-    ) -> Tuple[str, ArgList]:
+        self,
+        args: Arguments = None,
+        style: ParamStyleT = DEFAULT_PARAM_STYLE,
+        lead: str = "WHERE",
+        offset: int = 1,
+    ) -> Tuple[str, Arguments]:
         """Generate the ``WHERE`` clause of a SQL statement.
 
         Parameters
@@ -291,60 +346,100 @@ class FilterList(UserList):
         The WHERE clause for your SQL statement.
         A list of args to pass on to the DB client when performing the query.
         """
-        args = args or ArgList()
-        where = []
-        for fylter in self:
-            sql, args = fylter.to_sql(args, style)
-            where.append(sql)
-        where = "AND\n  ".join(where)
-
-        return f"WHERE\n  {where}" if where else "", args
+        args = Arguments() if args is None else args
+        where = "AND\n  ".join(self.iter_sql(args, style, offset))
+        return f"{lead}\n  {where}" if where else "", args
 
 
-@dataclasses.dataclass
-class BaseSQLStatement:
+@dataclasses.dataclass(frozen=True)
+class BaseSQLStatement(AbstractSQL):
     """A Base-class for simple SQL Statements (Select, Update, Insert, etc)"""
 
-    def __post_init__(self):
-        if hasattr(self, "fields") and not isinstance(self.fields, FieldList):
-            self.fields = FieldList(self.fields)
-        if hasattr(self, "filters") and not isinstance(self.filters, FilterList):
-            self.filters = FilterList(self.filters)
+    table: str
+    schema: Optional[str] = None
 
     @property
     def table_name(self) -> str:
         return f"{self.schema}.{self.table}" if self.schema else self.table
 
-    def to_sql(self) -> Tuple[str, Union[List, Dict]]:
-        raise NotImplementedError
+    def cte(
+        self, statement: "BaseSQLStatement", *, alias: str = None
+    ) -> "CommonTableExpression":
+        alias = alias or (
+            f"{self.table_name}_"
+            f"{self.__class__.__name__.lower()}_"
+            f"{id(self)}".replace("-", "_")
+        )
+        return CommonTableExpression(self, statement, alias)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
+class CommonTableExpression(AbstractSQL):
+    expression: BaseSQLStatement
+    statement: BaseSQLStatement
+    alias: str
+
+    def to_sql(
+        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
+    ) -> Tuple[str, Arguments]:
+        cte, exprargs = self.expression.to_sql(style, offset=offset)
+        stmt, stmtargs = self.statement.to_sql(style, self.get_offset(exprargs, offset))
+        return f"WITH {self.alias} AS (\n{cte}\n)\n{stmt}", exprargs.add(stmtargs)
+
+
+class JoinType(str, enum.Enum):
+    R = "RIGHT"
+    L = "LEFT"
+    I = "INNER"  # noqa: E741
+    O = "OUTER"  # noqa: E741
+
+
+@dataclasses.dataclass(frozen=True)
+class Join(AbstractSQL):
+    table: Union[str, "Select"]
+    lkey: str
+    rkey: str
+    schema: Optional[str] = None
+    alias: Optional[str] = None
+    how: Optional[JoinType] = None
+    filters: Optional[Expressions] = None
+
+    @property
+    def table_name(self) -> str:
+        return f"{self.schema}.{self.table}" if self.schema else self.table
+
+    def to_sql(self, offset: int = 1) -> str:
+        alias = f" AS {self.alias}" if self.alias else ""
+        how = self.how.value if self.how else ""
+        filters = self.filters.to_sql(lead="AND", offset=offset) if self.filters else ""
+        return f"{how} JOIN {self.table_name} {alias}\n  ON {self.lkey}\n  {filters}"
+
+    @cached_property
+    def as_sql(self) -> str:
+        return self.to_sql()
+
+
+@dataclasses.dataclass(frozen=True)
 class Select(BaseSQLStatement):
     """A simple, single-table SQL SELECT statement.
 
     As the first line indicates, this does not currently support JOINs.
     """
 
-    table: str
-    schema: str = None
-    filters: FilterList = dataclasses.field(default_factory=FilterList)
-    fields: FieldList = dataclasses.field(default_factory=FieldList)
+    filters: Expressions = dataclasses.field(default_factory=Expressions)
+    fields: Fields = dataclasses.field(default_factory=Fields)
+    joins: Tuple[Join] = dataclasses.field(default_factory=tuple)
 
     def build_select(self) -> str:
         """Build the SELECT clause of a SQL statement.
 
         If :attr:`Select.fields` is empty, default to selecting all columns.
         """
-        columns = []
-        for field in self.fields:
-            columns.append(field.for_fetch())
-        columns = ",\n  ".join(columns) if columns else "*"
-
+        columns = ",\n  ".join(f.fetch_sql for f in self.fields)
         return f"SELECT\n  {columns}\nFROM\n  {self.table_name}"
 
     def to_sql(
-        self, style: ParamStyleType = DEFAULT_PARAM_STYLE
+        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
     ) -> Tuple[str, Union[List, Dict]]:
         """Generate a valid SQL SELECT statement for a single table.
 
@@ -359,12 +454,19 @@ class Select(BaseSQLStatement):
         The arguments to pass to the DB client for secure formatting.
         """
         select = self.build_select()
-        where, args = self.filters.to_sql(style=style)
-        return f"{select}\n{where}", args.for_sql(style)
+        where, args = self.filters.to_sql(style=style, offset=offset)
+        joins = "\n".join(j.as_sql for j in self.joins)
+        if joins:
+            joins = f"{joins}\n"
+        return f"{select}\n{joins}{where}", args.for_sql(style)
 
 
 class _BaseWriteStatement(BaseSQLStatement):
-    def get_returning(self) -> str:
+    fields: Fields
+    returns: Optional[Field]
+
+    @cached_property
+    def returning(self) -> str:
         """Get the RETURNING clause of write statement, if any is specified.
 
         Notes
@@ -373,33 +475,28 @@ class _BaseWriteStatement(BaseSQLStatement):
         popular SQL implementations available (such as Postgres) to warrant its inclusion as an optional
         parameter.
         """
-        return f"RETURNING {self.returns.for_fetch()}" if self.returns else ""
-
-    def __post_init__(self):
-        super().__post_init__()
-        try:
-            columns = self.fields.fields()
-            values = self.fields.values()
-            assert (
-                columns and values and len(columns) == len(values)
-            ), f"{type(self).__name__}.fields must all have a name and value."
-        except AssertionError as err:
-            raise TypeError(err)
+        return f"RETURNING {self.returns.fetch_sql}" if self.returns else ""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Update(_BaseWriteStatement):
     """A simple, single-table SQL UPDATE Statement."""
 
-    table: str
-    schema: str = None
-    filters: FilterList = dataclasses.field(default_factory=FilterList)
-    fields: FieldList = dataclasses.field(default_factory=FieldList)
-    returns: Field = None
+    filters: Expressions = dataclasses.field(default_factory=Expressions)
+    fields: Fields = dataclasses.field(default_factory=Fields)
+    joins: Tuple[Join] = dataclasses.field(default_factory=tuple)
+    returns: Optional[Field] = None
+
+    def iter_columns(
+        self, args: Arguments, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
+    ) -> Iterator[str]:
+        for i, field in enumerate(self.fields, start=offset):
+            stmnt, args = Expression(field, prefix="col").to_sql(args, style, offset=i)
+            yield stmnt
 
     def build_update(
-        self, style: ParamStyleType = DEFAULT_PARAM_STYLE
-    ) -> Tuple[str, ArgList]:
+        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
+    ) -> Tuple[str, Arguments]:
         """Build the SQL UPDATE clause.
 
         Parameters
@@ -412,16 +509,12 @@ class Update(_BaseWriteStatement):
         The generated UPDATE clause of a SQL statement
         The arguments to pass to the DB client for secure formatting.
         """
-        updates = []
-        args = ArgList()
-        for field in self.fields:
-            stmt, args = Filter(field, prefix="col").to_sql(args, style)
-            updates.append(stmt)
-        updates = ",\n  ".join(updates)
+        args = Arguments()
+        updates = ",\n  ".join(self.iter_columns(args, style, offset=offset))
         return f"UPDATE\n  {self.table_name}\nSET\n  {updates}", args
 
     def to_sql(
-        self, style: ParamStyleType = DEFAULT_PARAM_STYLE
+        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
     ) -> Tuple[str, Union[List, Dict]]:
         """Build the SQL UPDATE clause.
 
@@ -435,13 +528,15 @@ class Update(_BaseWriteStatement):
         The generated SQL UPDATE statement
         The arguments to pass to the DB client for secure formatting.
         """
-        update, args = self.build_update(style)
-        where, args = self.filters.to_sql(args, style)
-        returning = self.get_returning()
-        return f"{update}\n{where}\n{returning}", args.for_sql(style)
+        update, args = self.build_update(style, offset=offset)
+        offset = self.get_offset(args, offset)
+        where, args = self.filters.to_sql(args, style, offset=offset)
+        joins = "\n,  ".join((j.as_sql for j in self.joins))
+        returning = self.returning
+        return f"{update}\n{joins}\n{where}\n{returning}", args.for_sql(style)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Insert(_BaseWriteStatement):
     """A simple, single-table SQL INSERT Statement.
 
@@ -450,41 +545,41 @@ class Insert(_BaseWriteStatement):
     implemented, as I'd grown tired of solving the same problem every time an ORM wasn't a viable option.
     """
 
-    table: str
-    schema: str = None
-    fields: FieldList = dataclasses.field(default_factory=FieldList)
+    fields: Fields = dataclasses.field(default_factory=Fields)
     returns: Field = None
 
     @staticmethod
-    def _fields_to_sql(
-        fields: FieldList, style: ParamStyleType, args: ArgList, inject: bool = False
-    ) -> str:
-        # Override DBAPI formatting. This is dangerous, but required for columns on insert statements in some clients.
-        if inject:
-            return f"({', '.join(fields.values())})"
-
-        stmnts = []
-        for field in fields:
+    def _iter_fields(fields: Fields, style: ParamStyleT, offset: int = 1) -> str:
+        for i, field in enumerate(fields, start=offset):
             # convert the enum to str
-            fmt = f"{style}"
+            fmt = style.value
             # name the parameter according to the style
             if style in NumParamStyle:
-                fmt = fmt.format(args.index(field) + 1)
+                fmt = fmt.format(i)
             elif style in NameParamStyle:
-                fmt = fmt.format(field.name)
-            # append the parameter to the list
-            stmnts.append(fmt)
+                fmt = fmt.format(field.left)
+            yield fmt
+
+    def _fields_to_sql(
+        self, fields: Fields, style: ParamStyleT, offset: int = 1, inject: bool = False,
+    ) -> str:
+        # Override DBAPI formatting. This is dangerous,
+        # but required for columns on insert statements in some clients.
+        if inject:
+            return f"({', '.join(fields.iter_right_values())})"
+
         # join the parameters
-        stmnts = ",\n  ".join(stmnts)
+        stmnts = ",\n  ".join(self._iter_fields(fields, style, offset))
         # return them as a single, SQL-compliant fragment
         return f"({stmnts})" if stmnts else ""
 
     def build_insert(
         self,
-        style: ParamStyleType = DEFAULT_PARAM_STYLE,
+        style: ParamStyleT = DEFAULT_PARAM_STYLE,
         *,
         inject_columns: bool = False,
-    ) -> Tuple[str, ArgList]:
+        offset: int = 1,
+    ) -> Tuple[str, Arguments]:
         """Build a SQL INSERT statement.
 
         We create two new :class:`FieldList` - one for column declaration and one for values declaration.
@@ -506,23 +601,31 @@ class Insert(_BaseWriteStatement):
         The generated SQL INSERT statement
         The arguments to pass to the DB client for secure formatting.
         """
-        columns = FieldList([Field(f"col{x.name}", x.name) for x in self.fields])
-        values = FieldList([Field(f"val{x.name}", x.value) for x in self.fields])
-        args = ArgList(values) if inject_columns else ArgList(columns + values)
-        insert_sql = self._fields_to_sql(columns, style, args, inject=inject_columns)
-        values_sql = self._fields_to_sql(values, style, args)
-        returning = self.get_returning()
+        columns = Fields((Field(f"col{x.left}", x.left) for x in self.fields))
+        colargs = Arguments(columns)
+        values = Fields((Field(f"val{x.left}", x.right) for x in self.fields))
+        valargs = Arguments(values)
+        insert_sql = self._fields_to_sql(
+            columns, style, inject=inject_columns, offset=offset
+        )
+        values_sql = self._fields_to_sql(
+            values, style, offset=self.get_offset(colargs, offset)
+        )
+        returning = self.returning
         return (
             (
                 f"INSERT INTO\n  {self.table_name} {insert_sql}\n"
                 f"VALUES\n  {values_sql}\n"
                 f"{returning}"
             ),
-            args,
+            valargs if inject_columns else colargs.add(valargs),
         )
 
     def to_sql(
-        self, style: ParamStyleType = DEFAULT_PARAM_STYLE, inject_columns: bool = False
+        self,
+        style: ParamStyleT = DEFAULT_PARAM_STYLE,
+        inject_columns: bool = True,
+        offset: int = 1,
     ) -> Tuple[str, Union[List, Dict]]:
         """Build the SQL INSERT statement and format the list of arguments to pass to the DB client.
 
@@ -539,24 +642,22 @@ class Insert(_BaseWriteStatement):
         The generated SQL INSERT statement
         The arguments to pass to the DB client for secure formatting.
         """
-        query, args = self.build_insert(style, inject_columns=inject_columns)
+        query, args = self.build_insert(
+            style, inject_columns=inject_columns, offset=offset
+        )
         return query, args.for_sql(style)
 
 
-@dataclasses.dataclass
-class Delete(BaseSQLStatement):
+@dataclasses.dataclass(frozen=True)
+class Delete(_BaseWriteStatement):
     """A simple, single-table SQL DELETE Statement."""
 
-    table: str
-    schema: str = None
-    filters: FilterList = dataclasses.field(default_factory=FilterList)
+    filters: Expressions = dataclasses.field(default_factory=Expressions)
+    joins: Tuple[Join] = dataclasses.field(default_factory=tuple)
     returns: Field = None
 
-    def get_returning(self) -> str:
-        return f"RETURNING {self.returns.for_fetch()}" if self.returns else ""
-
     def to_sql(
-        self, style: ParamStyleType = DEFAULT_PARAM_STYLE
+        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
     ) -> Tuple[str, Union[List, Dict]]:
         """Generate a SQL DELETE statement.
 
@@ -570,20 +671,21 @@ class Delete(BaseSQLStatement):
         The generated SQL DELETE statement
         The arguments to pass to the DB client for secure formatting.
         """
-        where, args = self.filters.to_sql(style=style)
-        returning = self.get_returning()
+        where, args = self.filters.to_sql(style=style, offset=offset)
+        joins = "\n,  ".join(j.as_sql for j in self.joins)
         return (
-            f"DELETE FROM\n  {self.table_name}\n{where}\n{returning}",
+            f"DELETE FROM\n  {self.table_name}\n{joins}\n{where}\n{self.returning}",
             args.for_sql(style),
         )
 
 
-FieldDataType = NewType(
-    "FieldDataType", Union[Dict, Collection[Tuple[Hashable, Any]], NamedTuple, Type]
-)
+SQLStatementT = Union[Select, Insert, Update, Delete]
 
 
-def data_to_fields(data: FieldDataType, exclude: Any = Nothing) -> FieldList:
+FieldDataT = Union[Dict, Collection[Tuple[Hashable, Any]], NamedTuple, Type]
+
+
+def data_to_fields(data: FieldDataT, exclude: Any = Unset) -> Fields:
     """Convert a dataclass, NamedTuple, dict, or array of tuples to a FieldList.
 
     Parameters
@@ -594,20 +696,20 @@ def data_to_fields(data: FieldDataType, exclude: Any = Nothing) -> FieldList:
         Any value or type which you wish to exclude
     """
     if data:
-        dict_factory = DictFactory(exclude=exclude)
+        dict_factory = dict_filter_factory(exclude=exclude)
         if dataclasses.is_dataclass(data):
-            data = dataclasses.asdict(data, dict_factory=dict_factory)
+            filtered = dataclasses.asdict(data, dict_factory=dict_factory)
         elif isnamedtuple(data):
-            data = dict_factory(data._asdict())
+            filtered = dict_factory(data._asdict())
         elif isinstance(data, Mapping) or (
             isinstance(data, Collection)
             and all((isinstance(x, Tuple) and len(x) == 2) for x in data)
         ):
-            data = dict_factory(data)
-        if isinstance(data, dict):
-            return FieldList([Field(x, y) for x, y in data.items()])
+            filtered = dict_factory(data)
+        else:
+            raise SQLValueError(
+                "Data must not be empty and be of type dataclass, namedtuple, mapping, "
+                f"or collection of tuples whose len is 2. Provided {type(data)}: {data}"
+            )
 
-    raise TypeError(
-        "Data must not be empty and be of type dataclass, namedtuple, mapping, "
-        f"or collection of tuples whose len is 2. Provided {type(data)}: {data}"
-    )
+        return Fields((Field(x, y) for x, y in filtered.items()))
