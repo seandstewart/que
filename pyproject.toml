@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "~3.6.1"
+python = ">=3.6.1"
 cached_property = {version = "^1.5.1", python = "<3.8"}
 dataclasses = {version = "*", python = "~3.6"}
 
