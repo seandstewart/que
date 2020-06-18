@@ -48,10 +48,10 @@ jobs:
       run: "poetry run black . --check"
 
     - name: Static type-check with MyPy
-      run: "poetry run mypy typic --ignore-missing-imports"
+      run: "poetry run mypy que --ignore-missing-imports"
 
     - name: Test with pytest
-      run: "poetry run pytest tests typic --doctest-modules --cov --cov-report xml"
+      run: "poetry run pytest tests que --doctest-modules --cov --cov-report xml"
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v1
