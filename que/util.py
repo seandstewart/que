@@ -24,8 +24,8 @@ class SentinelType(type):
 Unset = SentinelType("unset")
 
 
-def dict_filter_factory(exclude: Optional[Any] = Unset, astype: bool = False):
-    if exclude is Unset:
+def dict_filter_factory(exclude: Optional[Any] = ..., astype: bool = False):
+    if exclude is ...:
         return dict
 
     if isinstance(exclude, type) or astype:
@@ -36,7 +36,7 @@ def dict_filter_factory(exclude: Optional[Any] = Unset, astype: bool = False):
 
         return filter
 
-    def filter(obj, *, __exclude=exclude):
+    def filter(obj, *, __exclude=exclude):  # type: ignore
         items = obj.items() if isinstance(obj, Mapping) else obj
         return {x: y for x, y in items if y != exclude}
 

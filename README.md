@@ -54,7 +54,6 @@ Que works with the DBAPI client of your choice by parametrizing your sql
 and formatting your arguments for you:
 
 ```python
-```python
 >>> import que
 >>> fields = [que.Field('bar')]
 >>> filters = [que.Expression(que.Field('id', 1))]

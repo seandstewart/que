@@ -6,7 +6,6 @@ from typing import NamedTuple
 import pytest
 
 import que
-import que.query
 
 
 @pytest.fixture
@@ -60,100 +59,121 @@ def test_field_invalid():
         que.Field()
 
 
-def test_select_default_style(default_select):
-    sql, args = default_select.to_sql()
-    assert sql == "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = :1"
-    assert que.Arguments(default_select.fields).for_sql() == args
+@pytest.mark.parametrize(
+    argnames="style,statement",
+    argvalues=[
+        (
+            que.NumParamStyle.NUM,
+            "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = :1",
+        ),
+        (
+            que.NumParamStyle.DOL,
+            "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = $1",
+        ),
+        (
+            que.NameParamStyle.NAME,
+            "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = :foo",
+        ),
+        (
+            que.NameParamStyle.PYFM,
+            "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = %(foo)s",
+        ),
+        (
+            que.BasicParamStyle.FM,
+            "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = %s",
+        ),
+        (
+            que.BasicParamStyle.QM,
+            "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = ?",
+        ),
+    ],
+)
+def test_select(style, statement, default_select):
+    sql, args = default_select.to_sql(style)
+    assert sql == statement
+    assert que.Arguments(default_select.fields) == args
 
 
-def test_select_dollar_style(default_select):
-    sql, args = default_select.to_sql(que.NumParamStyle.DOL)
-    assert sql == "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = $1"
-    assert que.Arguments(default_select.fields).for_sql(que.NumParamStyle.DOL) == args
-
-
-def test_select_name_style(default_select):
-    sql, args = default_select.to_sql(que.NameParamStyle.NAME)
-    assert sql == "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = :foo"
-    assert que.Arguments(default_select.fields).for_sql(que.NameParamStyle.NAME) == args
-
-
-def test_select_pyformat_style(default_select):
-    sql, args = default_select.to_sql(que.NameParamStyle.PYFM)
-    assert sql == "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = %(foo)s"
-    assert que.Arguments(default_select.fields).for_sql(que.NameParamStyle.PYFM) == args
-
-
-def test_select_format_style(default_select):
-    sql, args = default_select.to_sql(que.BasicParamStyle.FM)
-    assert sql == "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = %s"
-    assert que.Arguments(default_select.fields).for_sql(que.BasicParamStyle.FM) == args
-
-
-def test_select_qmark_style(default_select):
-    sql, args = default_select.to_sql(que.BasicParamStyle.QM)
-    assert sql == "SELECT\n  foo AS bar\nFROM\n  bar.foo\nWHERE\n  foo = ?"
-    assert que.Arguments(default_select.fields).for_sql(que.BasicParamStyle.QM) == args
-
-
-def test_delete(default_delete):
-    sql, args = default_delete.to_sql()
-    assert sql == "DELETE FROM\n  bar.foo\n\nWHERE\n  foo = :1\n"
-
-
-def test_delete_get_returning(default_delete):
+def test_get_returning(default_delete):
     delete = replace(default_delete, returns=que.Field("id"))
     sql, args = delete.to_sql()
     assert sql.endswith("RETURNING id")
 
 
-def test_update_default_style(default_update):
-    sql, args = default_update.to_sql()
-    assert sql == "UPDATE\n  bar.foo\nSET\n  foo = :1\n\nWHERE\n  foo = :2\n"
-    assert len(args) == 2
+def test_delete(default_delete):
+    sql, args = default_delete.to_sql()
+    assert sql == "DELETE FROM bar.foo\n\nWHERE\n  foo = :1\n"
 
 
-def test_update_dollar_style(default_update):
-    sql, args = default_update.to_sql(que.NumParamStyle.DOL)
-    assert sql == "UPDATE\n  bar.foo\nSET\n  foo = $1\n\nWHERE\n  foo = $2\n"
-    assert len(args) == 2
+@pytest.mark.parametrize(
+    argnames="style,statement",
+    argvalues=[
+        (
+            que.NumParamStyle.NUM,
+            "UPDATE\n  bar.foo\nSET\n  foo = :1\n\nWHERE\n  foo = :2\n",
+        ),
+        (
+            que.NumParamStyle.DOL,
+            "UPDATE\n  bar.foo\nSET\n  foo = $1\n\nWHERE\n  foo = $2\n",
+        ),
+        (
+            que.NameParamStyle.NAME,
+            "UPDATE\n  bar.foo\nSET\n  foo = :colfoo\n\nWHERE\n  foo = :foo\n",
+        ),
+        (
+            que.NameParamStyle.PYFM,
+            "UPDATE\n  bar.foo\nSET\n  foo = %(colfoo)s\n\nWHERE\n  foo = %(foo)s\n",
+        ),
+        (
+            que.BasicParamStyle.FM,
+            "UPDATE\n  bar.foo\nSET\n  foo = %s\n\nWHERE\n  foo = %s\n",
+        ),
+        (
+            que.BasicParamStyle.QM,
+            "UPDATE\n  bar.foo\nSET\n  foo = ?\n\nWHERE\n  foo = ?\n",
+        ),
+    ],
+)
+def test_update(style, statement, default_update):
+    sql, args = default_update.to_sql(style)
+    assert sql == statement
+    if style in que.NameParamStyle:
+        expected = que.Arguments(
+            que.Fields((replace(f, left=f"col{f.left}") for f in default_update.fields))
+            + que.Fields(default_update.filters.fields_to_sql(style))
+        )
+    else:
+        expected = que.Arguments(
+            default_update.fields
+            + que.Fields(default_update.filters.fields_to_sql(style))
+        )
+    assert args == expected
 
 
-def test_update_name_style(default_update):
-    sql, args = default_update.to_sql(que.NameParamStyle.NAME)
-    assert sql == "UPDATE\n  bar.foo\nSET\n  foo = :colfoo\n\nWHERE\n  foo = :foo\n"
-    assert set(args) == {"colfoo", "foo"}
-
-
-def test_update_pyformat_style(default_update):
-    sql, args = default_update.to_sql(que.NameParamStyle.PYFM)
-    assert (
-        sql == "UPDATE\n  bar.foo\nSET\n  foo = %(colfoo)s\n\nWHERE\n  foo = %(foo)s\n"
+@pytest.mark.parametrize(
+    argnames="style,statement",
+    argvalues=[
+        (que.NumParamStyle.NUM, "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (:1)\n"),
+        (que.NumParamStyle.DOL, "INSERT INTO\n  bar.foo (foo)\nVALUES\n  ($1)\n",),
+        (
+            que.NameParamStyle.NAME,
+            "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (:valfoo)\n",
+        ),
+        (
+            que.NameParamStyle.PYFM,
+            "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (%(valfoo)s)\n",
+        ),
+        (que.BasicParamStyle.FM, "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (%s)\n",),
+        (que.BasicParamStyle.QM, "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (?)\n",),
+    ],
+)
+def test_insert(style, statement, default_insert):
+    sql, args = default_insert.to_sql(style)
+    assert sql == statement
+    expected = que.Arguments(
+        que.Fields(replace(f, left=f"val{f.left}") for f in default_insert.fields)
     )
-    assert set(args) == {"colfoo", "foo"}
-
-
-def test_update_format_style(default_update):
-    sql, args = default_update.to_sql(que.BasicParamStyle.FM)
-    assert sql == "UPDATE\n  bar.foo\nSET\n  foo = %s\n\nWHERE\n  foo = %s\n"
-    assert len(args) == 2
-
-
-def test_update_qmark_style(default_update):
-    sql, args = default_update.to_sql(que.BasicParamStyle.QM)
-    assert sql == "UPDATE\n  bar.foo\nSET\n  foo = ?\n\nWHERE\n  foo = ?\n"
-    assert len(args) == 2
-
-
-def test_update_get_returning(default_update):
-    update = replace(default_update, returns=que.Field("id"))
-    sql, args = update.to_sql()
-    assert sql.endswith("RETURNING id")
-
-
-def test_insert_default_style(default_insert):
-    sql, args = default_insert.to_sql()
-    assert sql == "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (:2)\n"
+    assert args == expected
 
 
 def test_insert_inject_columns_false(default_insert):
@@ -162,67 +182,25 @@ def test_insert_inject_columns_false(default_insert):
     assert len(args) == 2
 
 
-def test_insert_dollar_style(default_insert):
-    sql, args = default_insert.to_sql(que.NumParamStyle.DOL)
-    assert sql == "INSERT INTO\n  bar.foo (foo)\nVALUES\n  ($2)\n"
-    assert len(args) == 1
+class FooTup(NamedTuple):
+    foo: str
 
 
-def test_insert_name_style(default_insert):
-    sql, args = default_insert.to_sql(que.NameParamStyle.NAME)
-    assert sql == "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (:valfoo)\n"
-    assert args.keys() == {"valfoo"}
+@dataclass
+class FooBar:
+    foo: str
 
 
-def test_insert_pyformat_style(default_insert):
-    sql, args = default_insert.to_sql(que.NameParamStyle.PYFM)
-    assert sql == "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (%(valfoo)s)\n"
-    assert args.keys() == {"valfoo"}
-
-
-def test_insert_format_style(default_insert):
-    sql, args = default_insert.to_sql(que.BasicParamStyle.FM)
-    assert sql == "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (%s)\n"
-    assert len(args) == 1
-
-
-def test_insert_qmark_style(default_insert):
-    sql, args = default_insert.to_sql(que.BasicParamStyle.QM)
-    assert sql == "INSERT INTO\n  bar.foo (foo)\nVALUES\n  (?)\n"
-    assert len(args) == 1
-
-
-def test_insert_get_returning(default_insert):
-    insert = replace(default_insert, returns=que.Field("id"))
-    sql, args = insert.to_sql()
-    assert sql.endswith("RETURNING id")
-
-
-def test_data_to_fields_dict(default_fields):
-    assert que.data_to_fields({"foo": "bar"}) == default_fields
-
-
-def test_data_to_fields_list(default_fields):
-    assert que.data_to_fields([("foo", "bar")]) == default_fields
-
-
-def test_data_to_fields_named_tuple(default_fields):
-    class FooBar(NamedTuple):
-        foo: str
-
-    assert que.data_to_fields(FooBar("bar")) == default_fields
-
-
-def test_data_to_fields_dataclass(default_fields):
-    @dataclass
-    class FooBar:
-        foo: str
-
-    assert que.data_to_fields(FooBar("bar")) == default_fields
+@pytest.mark.parametrize(
+    argnames="data",
+    argvalues=[{"foo": "bar"}, [("foo", "bar")], FooTup("bar"), FooBar("bar")],
+)
+def test_data_to_fields_dict(data, default_fields):
+    assert que.data_to_fields(data) == default_fields
 
 
 def test_data_to_fields_invalid():
-    with pytest.raises(que.query.SQLValueError):
+    with pytest.raises(que.SQLValueError):
         que.data_to_fields(["foo"])
-    with pytest.raises(que.query.SQLValueError):
+    with pytest.raises(que.SQLValueError):
         que.data_to_fields([("foo",)])

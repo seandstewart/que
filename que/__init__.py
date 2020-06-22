@@ -1,12 +1,5 @@
-from .query import (  # noqa: F401 - we're defining the public package
-    MathOps,
-    BitOps,
-    CmpOps,
-    LogOps,
-    BasicParamStyle,
-    NumParamStyle,
-    NameParamStyle,
-    DEFAULT_PARAM_STYLE,
+# flake8: noqa
+from .structure import (
     Field,
     Expression,
     Fields,
@@ -20,3 +13,5 @@ from .query import (  # noqa: F401 - we're defining the public package
     SQLSyntaxError,
     SQLValueError,
 )
+from .keywords import MathOps, BitOps, LogOps, CmpOps
+from .style import BasicParamStyle, NumParamStyle, NameParamStyle, DEFAULT_PARAM_STYLE

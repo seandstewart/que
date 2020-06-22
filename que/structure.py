@@ -3,8 +3,8 @@
 import abc
 import dataclasses
 import enum
+from itertools import chain
 from typing import (
-    List,
     Tuple,
     Union,
     Any,
@@ -18,10 +18,13 @@ from typing import (
     Iterable,
     Optional,
     Sized,
+    cast,
 )
 
 from .compat import cached_property
-from .util import isnamedtuple, Unset, dict_filter_factory
+from .keywords import CmpOps, Clause, LogOps
+from .style import ParamStyleT, NumParamStyle, NameParamStyle, default_style
+from .util import isnamedtuple, dict_filter_factory
 
 
 class SQLSyntaxError(SyntaxError):
@@ -32,88 +35,11 @@ class SQLValueError(ValueError):
     ...
 
 
-class MathOps(str, enum.Enum):
-    """Common SQL arithmetic operations."""
-
-    ADD = "+"
-    IADD = "+="
-    SUB = "-"
-    ISUB = "-="
-    MUL = "*"
-    IMUL = "*="
-    DIV = "/"
-    IDIV = "/="
-    MOD = "%"
-    IMOD = "%="
-
-
-class BitOps(str, enum.Enum):
-    """SQL Bitwise operations."""
-
-    AND = "&"
-    IAND = "&="
-    OR = "|"
-    IOR = "|*="
-    XOR = "^"
-    IXOR = "^-="
-
-
-class LogOps(str, enum.Enum):
-    """Common SQL Logical Operations."""
-
-    ALL = "ALL"
-    AND = "AND"
-    ANY = "ANY"
-    BET = "BETWEEN"
-    EX = "EXISTS"
-    IN = "IN"
-    ILI = "ILIKE"
-    LI = "LIKE"
-    NOT = "NOT"
-    OR = "OR"
-    RE = "REGEXP"
-
-
-class CmpOps(str, enum.Enum):
-    """Common SQL Comparison operations."""
-
-    EQ = "="
-    GT = ">"
-    GE = ">="
-    LT = "<"
-    LE = "<="
-    NE = "<>"
-
-
-class BasicParamStyle(str, enum.Enum):
-    """Simple DBAPI 2.0 compliant param styles."""
-
-    QM = "?"
-    FM = "%s"
-
-
-class NumParamStyle(str, enum.Enum):
-    """Numbered DBAPI 2.0 compliant param styles."""
-
-    NUM = ":{}"
-    DOL = "${}"
-
-
-class NameParamStyle(str, enum.Enum):
-    """Named DBAPI 2.0 compliant param styles"""
-
-    NAME = ":{}"
-    PYFM = "%({})s"
-
-
-SQLOpsT = Union[CmpOps, LogOps, BitOps, MathOps]
-ParamStyleT = Union[BasicParamStyle, NumParamStyle, NameParamStyle]
-DEFAULT_PARAM_STYLE = NumParamStyle.NUM
-
-
 class AbstractSQL(abc.ABC):
     @abc.abstractmethod
-    def to_sql(self, *args, **kwargs) -> Tuple[str, "Arguments"]:
+    def to_sql(
+        self, style: ParamStyleT = None, offset: int = 1, **kwargs
+    ) -> Tuple[str, "Arguments"]:
         ...
 
     @cached_property
@@ -133,20 +59,20 @@ class Field:
     the fields which you plan to select or modify or the fields which you wish to filter by.
     """
 
-    left: Union[str, Unset] = Unset
-    right: Union[Any, Unset] = Unset
+    left: str = ...  # type: ignore
+    right: Any = ...  # type: ignore
 
     def __post_init__(self):
-        if {self.left, self.right} == {Unset, Unset}:
+        if {self.left, self.right} == {..., ...}:
             tname = self.__class__
             raise SQLSyntaxError(f"{tname}.left or {tname}.right must be provided")
 
     @cached_property
     def fetch_sql(self) -> str:
         """A `Field` as represented in a SQL `SELECT` or `RETURNING` statement."""
-        if self.left is not Unset:
+        if self.left is not ...:
             # If we have a `value`, treat it as an alias.
-            if self.right:
+            if self.right is not ...:
                 return f"{self.left} AS {self.right}"
             return self.left
         return self.right
@@ -167,32 +93,28 @@ class Expression(AbstractSQL):
     prefix: str = ""
 
     def __post_init__(self):
-        if self.field.left is Unset:
+        if self.field.left is ...:
             raise SQLSyntaxError(
                 f"{self.__class__.__name__}.field.name must be provided."
             )
 
-    def to_sql(
-        self,
-        args: "Arguments" = None,
-        style: ParamStyleT = DEFAULT_PARAM_STYLE,
-        offset: int = 1,
-    ) -> Tuple[str, "Arguments"]:
+    def to_sql(  # type: ignore
+        self, style: ParamStyleT = None, offset: int = 1, **_
+    ) -> Tuple[Field, str]:
         """Generate a single filter clause of a SQL Statement.
 
         Parameters
         ----------
-        args : optional
-            The mutable, ordered list of arguments.
         style : optional
             The DBAPI 2.0 compliant param-style you wish to use in the generated SQL.
+
 
         Returns
         -------
         The SQL fragment, as str
         The :class:`ArgList` which will be passed on to the DB client for secure formatting.
         """
-        args = Arguments() if args is None else args
+        style = style or default_style()
         fmt = style.value
         field = self.field
         if style in NameParamStyle:
@@ -201,8 +123,7 @@ class Expression(AbstractSQL):
             field = dataclasses.replace(field, left=name)
         elif style in NumParamStyle:
             fmt = fmt.format(offset)
-        args.append(field)
-        return f"{self.field.left} {self.opcode} {fmt}", args
+        return field, f"{self.field.left} {self.opcode} {fmt}"
 
 
 class Fields:
@@ -221,11 +142,30 @@ class Fields:
         """
         self.fields = (*fields,) if not isinstance(fields, tuple) else fields
 
-    def __eq__(self, other: "Fields"):
-        try:
-            return self.fields == other.fields
-        except AttributeError:
-            return super().__eq__(other)
+    def _clear_cache(self):
+        for cache in ("mapping", "left", "right"):
+            if hasattr(self, cache):
+                delattr(self, cache)
+
+    def add(self, fields: "Fields") -> "Fields":
+        return Fields(chain(self.fields, fields.fields))
+
+    __add__ = add
+
+    def iadd(self, fields: "Fields") -> "Fields":
+        self.fields += fields.fields
+        self._clear_cache()
+        return self
+
+    __iadd__ = iadd
+
+    def __eq__(self, o):
+        if isinstance(o, Fields):
+            return self.fields == o.fields
+        return super().__eq__(o)
+
+    def __hash__(self):
+        return self.fields.__hash__()
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.fields.__repr__()})"
@@ -245,14 +185,9 @@ class Fields:
             yield x.left
 
     @cached_property
-    def aslist(self) -> List[Any]:
-        """Return only a list of ``Field.value``."""
-        return [*self.iter_right_values()]
-
-    @cached_property
-    def asdict(self) -> Dict[str, Any]:
+    def mapping(self) -> Dict[str, Any]:
         """Return a mapping of ``Field.name->Field.value``."""
-        return {x.left: x.right for x in self if x.left is not Unset}
+        return {x.left: x.right for x in self if x.left is not ...}
 
     @cached_property
     def left(self) -> Tuple[str, ...]:
@@ -285,11 +220,24 @@ class Arguments:
         self.fields = Fields((*self.fields, field))
 
     def add(self, arguments: "Arguments") -> "Arguments":
-        return Arguments(Fields((*self.fields, *arguments.fields)))
+        return Arguments(self.fields + arguments.fields)
+
+    __add__ = add
+
+    def iadd(self, arguments: "Arguments") -> "Arguments":
+        self.fields += arguments.fields
+        return self
+
+    __iadd__ = iadd
+
+    def __eq__(self, o):
+        if isinstance(o, Arguments):
+            return self.fields == o.fields
+        return super().__eq__(o)
 
     def for_sql(
-        self, style: ParamStyleT = DEFAULT_PARAM_STYLE
-    ) -> Union[Dict[str, Any], List[Any]]:
+        self, style: ParamStyleT = None
+    ) -> Union[Dict[str, Any], Iterable[Any]]:
         """Output the list of args in the appropriate format for the param-style.
 
         Parameters
@@ -297,9 +245,10 @@ class Arguments:
         style :
             The enum selection which matches your param-style.
         """
+        style = style or default_style()
         if style in NameParamStyle:
-            return self.fields.asdict
-        return self.fields.aslist
+            return self.fields.mapping
+        return self.fields.right
 
 
 class Expressions(AbstractSQL):
@@ -309,7 +258,7 @@ class Expressions(AbstractSQL):
     """
 
     def __init__(self, expressions: Iterable[Expression] = ()):
-        self.expressions = (
+        self.expressions: Tuple[Expression, ...] = (
             (*expressions,) if not isinstance(expressions, tuple) else expressions
         )
 
@@ -320,71 +269,44 @@ class Expressions(AbstractSQL):
         yield from self.expressions.__iter__()
 
     def iter_sql(
-        self, args: Arguments, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
-    ) -> Iterator[str]:
-        for i, fylter in enumerate(self, start=offset):
-            sql, args = fylter.to_sql(args, style, offset=i)
-            yield sql
+        self, style: ParamStyleT = None, offset: int = 1
+    ) -> Iterator[Tuple[Field, str]]:
+        for i, expression in enumerate(self, start=offset):
+            yield expression.to_sql(style, offset=i)
 
-    def to_sql(
+    def fields_to_sql(
+        self, style: ParamStyleT = None, offset: int = 1
+    ) -> Mapping[Field, str]:
+        return dict(self.iter_sql(style=style, offset=offset))
+
+    def to_sql(  # type: ignore
         self,
-        args: Arguments = None,
-        style: ParamStyleT = DEFAULT_PARAM_STYLE,
-        lead: str = "WHERE",
+        style: ParamStyleT = None,
         offset: int = 1,
+        *,
+        lead: Union[Clause, LogOps] = Clause.WHR,
     ) -> Tuple[str, Arguments]:
         """Generate the ``WHERE`` clause of a SQL statement.
 
         Parameters
         ----------
-        args : optional
-            The list of :class:`Fields` which will serve as arguments for formatting the SQL statement.
-        style : defaults :class:`NumParamStyle.NUM`
+        style
+            defaults :class:`NumParamStyle.NUM`
+        offset
+            The offset for the parameter counter (only needed for number-based params).
+            defaults 1
+        lead
+            The leading keyword for the statement block. defaults "WHERE".
 
         Returns
         -------
         The WHERE clause for your SQL statement.
         A list of args to pass on to the DB client when performing the query.
         """
-        args = Arguments() if args is None else args
-        where = "AND\n  ".join(self.iter_sql(args, style, offset))
+        fields_to_sql = self.fields_to_sql(style=style, offset=offset)
+        where = f"{LogOps.AND}\n  ".join(fields_to_sql.values())
+        args = Arguments(Fields(fields_to_sql.keys()))
         return f"{lead}\n  {where}" if where else "", args
-
-
-@dataclasses.dataclass(frozen=True)
-class BaseSQLStatement(AbstractSQL):
-    """A Base-class for simple SQL Statements (Select, Update, Insert, etc)"""
-
-    table: str
-    schema: Optional[str] = None
-
-    @property
-    def table_name(self) -> str:
-        return f"{self.schema}.{self.table}" if self.schema else self.table
-
-    def cte(
-        self, statement: "BaseSQLStatement", *, alias: str = None
-    ) -> "CommonTableExpression":
-        alias = alias or (
-            f"{self.table_name}_"
-            f"{self.__class__.__name__.lower()}_"
-            f"{id(self)}".replace("-", "_")
-        )
-        return CommonTableExpression(self, statement, alias)
-
-
-@dataclasses.dataclass(frozen=True)
-class CommonTableExpression(AbstractSQL):
-    expression: BaseSQLStatement
-    statement: BaseSQLStatement
-    alias: str
-
-    def to_sql(
-        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
-    ) -> Tuple[str, Arguments]:
-        cte, exprargs = self.expression.to_sql(style, offset=offset)
-        stmt, stmtargs = self.statement.to_sql(style, self.get_offset(exprargs, offset))
-        return f"WITH {self.alias} AS (\n{cte}\n)\n{stmt}", exprargs.add(stmtargs)
 
 
 class JoinType(str, enum.Enum):
@@ -405,18 +327,86 @@ class Join(AbstractSQL):
     filters: Optional[Expressions] = None
 
     @property
-    def table_name(self) -> str:
+    def table_name(self) -> Union[str, "Select"]:
         return f"{self.schema}.{self.table}" if self.schema else self.table
 
-    def to_sql(self, offset: int = 1) -> str:
-        alias = f" AS {self.alias}" if self.alias else ""
+    def to_sql(
+        self, style: ParamStyleT = None, offset: int = 1, **_
+    ) -> Tuple[str, Arguments]:
+        style = style or default_style()
+        alias = f" {Clause.AS} {self.alias}" if self.alias else ""
         how = self.how.value if self.how else ""
-        filters = self.filters.to_sql(lead="AND", offset=offset) if self.filters else ""
-        return f"{how} JOIN {self.table_name} {alias}\n  ON {self.lkey}\n  {filters}"
+        table = self.table_name
+        args = Arguments()
+        if isinstance(table, Select):
+            table, selargs = table.to_sql(style, offset, render_args=False)
+            args = cast(Arguments, selargs)
+
+        filters, filtargs = (
+            self.filters.to_sql(lead=LogOps.AND, offset=offset,)
+            if self.filters
+            else ("", Arguments())
+        )
+        args += filtargs
+        return (
+            f"{how} {Clause.JOIN} {self.table_name} {alias}\n  {Clause.ON} {self.lkey}\n  {filters}",
+            args,
+        )
 
     @cached_property
     def as_sql(self) -> str:
-        return self.to_sql()
+        return self.to_sql()[0]
+
+
+@dataclasses.dataclass(frozen=True)
+class CommonTableExpression(AbstractSQL):
+    expression: "BaseSQLStatement"
+    statement: "BaseSQLStatement"
+    alias: str
+
+    def to_sql(
+        self, style: ParamStyleT = None, offset: int = 1, **_
+    ) -> Tuple[str, Arguments]:
+        style = style or default_style()
+        cte, exprargs = self.expression.to_sql(style, offset=offset)
+        stmt, stmtargs = self.statement.to_sql(style, self.get_offset(exprargs, offset))
+        exprargs += stmtargs
+        return f"{Clause.WITH} {self.alias} {Clause.AS} (\n{cte}\n)\n{stmt}", exprargs
+
+
+@dataclasses.dataclass(frozen=True)  # type: ignore
+class BaseSQLStatement(AbstractSQL):
+    """A Base-class for simple SQL Statements (Select, Update, Insert, etc)"""
+
+    table: str
+    schema: Optional[str] = None
+    filters: Expressions = dataclasses.field(default_factory=Expressions)
+    fields: Fields = dataclasses.field(default_factory=Fields)
+    joins: Tuple[Join, ...] = ()
+
+    @property
+    def table_name(self) -> str:
+        return f"{self.schema}.{self.table}" if self.schema else self.table
+
+    def build_joins(self, style: ParamStyleT, offset: int, args: Arguments) -> str:
+        joins = ""
+        for j in self.joins:
+            stmt, jargs = j.to_sql(style=style, offset=offset)
+            joins = f"{joins}{stmt}\n"
+            args += jargs
+            offset += len(jargs)
+
+        return joins
+
+    def cte(
+        self, statement: "BaseSQLStatement", *, alias: str = None
+    ) -> "CommonTableExpression":
+        alias = alias or (
+            f"{self.table_name}_"
+            f"{self.__class__.__name__.lower()}_"
+            f"{id(self)}".replace("-", "_")
+        )
+        return CommonTableExpression(self, statement, alias)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -426,21 +416,17 @@ class Select(BaseSQLStatement):
     As the first line indicates, this does not currently support JOINs.
     """
 
-    filters: Expressions = dataclasses.field(default_factory=Expressions)
-    fields: Fields = dataclasses.field(default_factory=Fields)
-    joins: Tuple[Join] = dataclasses.field(default_factory=tuple)
-
     def build_select(self) -> str:
         """Build the SELECT clause of a SQL statement.
 
         If :attr:`Select.fields` is empty, default to selecting all columns.
         """
         columns = ",\n  ".join(f.fetch_sql for f in self.fields)
-        return f"SELECT\n  {columns}\nFROM\n  {self.table_name}"
+        return f"{Clause.SEL}\n  {columns}\n{Clause.FROM}\n  {self.table_name}"
 
-    def to_sql(
-        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
-    ) -> Tuple[str, Union[List, Dict]]:
+    def to_sql(  # type: ignore
+        self, style: ParamStyleT = None, offset: int = 1, **_,
+    ) -> Tuple[str, Arguments]:
         """Generate a valid SQL SELECT statement for a single table.
 
         Parameters
@@ -453,17 +439,17 @@ class Select(BaseSQLStatement):
         The generated SQL SELECT statement
         The arguments to pass to the DB client for secure formatting.
         """
+        style = style or default_style()
         select = self.build_select()
         where, args = self.filters.to_sql(style=style, offset=offset)
-        joins = "\n".join(j.as_sql for j in self.joins)
-        if joins:
-            joins = f"{joins}\n"
-        return f"{select}\n{joins}{where}", args.for_sql(style)
+        offset = self.get_offset(args, offset)
+        joins = self.build_joins(style=style, offset=offset, args=args)
+        return f"{select}\n{joins}{where}", args
 
 
+@dataclasses.dataclass(frozen=True)  # type: ignore
 class _BaseWriteStatement(BaseSQLStatement):
-    fields: Fields
-    returns: Optional[Field]
+    returns: Optional[Field] = None
 
     @cached_property
     def returning(self) -> str:
@@ -482,20 +468,14 @@ class _BaseWriteStatement(BaseSQLStatement):
 class Update(_BaseWriteStatement):
     """A simple, single-table SQL UPDATE Statement."""
 
-    filters: Expressions = dataclasses.field(default_factory=Expressions)
-    fields: Fields = dataclasses.field(default_factory=Fields)
-    joins: Tuple[Join] = dataclasses.field(default_factory=tuple)
-    returns: Optional[Field] = None
-
     def iter_columns(
-        self, args: Arguments, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
-    ) -> Iterator[str]:
+        self, style: ParamStyleT = None, offset: int = 1
+    ) -> Iterator[Tuple[Field, str]]:
         for i, field in enumerate(self.fields, start=offset):
-            stmnt, args = Expression(field, prefix="col").to_sql(args, style, offset=i)
-            yield stmnt
+            yield Expression(field, prefix="col").to_sql(style, offset=i)
 
     def build_update(
-        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
+        self, style: ParamStyleT = None, offset: int = 1
     ) -> Tuple[str, Arguments]:
         """Build the SQL UPDATE clause.
 
@@ -509,13 +489,16 @@ class Update(_BaseWriteStatement):
         The generated UPDATE clause of a SQL statement
         The arguments to pass to the DB client for secure formatting.
         """
-        args = Arguments()
-        updates = ",\n  ".join(self.iter_columns(args, style, offset=offset))
-        return f"UPDATE\n  {self.table_name}\nSET\n  {updates}", args
+        fields_to_sql = dict(self.iter_columns(style=style, offset=offset))
+        updates = ",\n  ".join(fields_to_sql.values())
+        return (
+            f"{Clause.UPD}\n  {self.table_name}\n{Clause.SET}\n  {updates}",
+            Arguments(Fields(fields_to_sql.keys())),
+        )
 
     def to_sql(
-        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
-    ) -> Tuple[str, Union[List, Dict]]:
+        self, style: ParamStyleT = None, offset: int = 1, **_
+    ) -> Tuple[str, Arguments]:
         """Build the SQL UPDATE clause.
 
         Parameters
@@ -528,12 +511,15 @@ class Update(_BaseWriteStatement):
         The generated SQL UPDATE statement
         The arguments to pass to the DB client for secure formatting.
         """
+        style = style or default_style()
         update, args = self.build_update(style, offset=offset)
         offset = self.get_offset(args, offset)
-        where, args = self.filters.to_sql(args, style, offset=offset)
-        joins = "\n,  ".join((j.as_sql for j in self.joins))
+        where, whargs = self.filters.to_sql(style, offset=offset)
+        args += whargs
+        offset = self.get_offset(args, offset)
+        joins = self.build_joins(style=style, offset=offset, args=args)
         returning = self.returning
-        return f"{update}\n{joins}\n{where}\n{returning}", args.for_sql(style)
+        return f"{update}\n{joins}\n{where}\n{returning}", args
 
 
 @dataclasses.dataclass(frozen=True)
@@ -545,11 +531,10 @@ class Insert(_BaseWriteStatement):
     implemented, as I'd grown tired of solving the same problem every time an ORM wasn't a viable option.
     """
 
-    fields: Fields = dataclasses.field(default_factory=Fields)
-    returns: Field = None
-
     @staticmethod
-    def _iter_fields(fields: Fields, style: ParamStyleT, offset: int = 1) -> str:
+    def _iter_fields(
+        fields: Fields, style: ParamStyleT, offset: int = 1
+    ) -> Iterator[str]:
         for i, field in enumerate(fields, start=offset):
             # convert the enum to str
             fmt = style.value
@@ -574,11 +559,7 @@ class Insert(_BaseWriteStatement):
         return f"({stmnts})" if stmnts else ""
 
     def build_insert(
-        self,
-        style: ParamStyleT = DEFAULT_PARAM_STYLE,
-        *,
-        inject_columns: bool = False,
-        offset: int = 1,
+        self, style: ParamStyleT, offset: int, *, inject_columns: bool = True,
     ) -> Tuple[str, Arguments]:
         """Build a SQL INSERT statement.
 
@@ -602,31 +583,34 @@ class Insert(_BaseWriteStatement):
         The arguments to pass to the DB client for secure formatting.
         """
         columns = Fields((Field(f"col{x.left}", x.left) for x in self.fields))
-        colargs = Arguments(columns)
         values = Fields((Field(f"val{x.left}", x.right) for x in self.fields))
-        valargs = Arguments(values)
         insert_sql = self._fields_to_sql(
             columns, style, inject=inject_columns, offset=offset
         )
-        values_sql = self._fields_to_sql(
-            values, style, offset=self.get_offset(colargs, offset)
-        )
+        # Only move the offset if we're NOT injecting columns.
+        if not inject_columns:
+            offset = self.get_offset(columns, offset)
+        values_sql = self._fields_to_sql(values, style, offset=offset)
         returning = self.returning
-        return (
-            (
-                f"INSERT INTO\n  {self.table_name} {insert_sql}\n"
-                f"VALUES\n  {values_sql}\n"
-                f"{returning}"
-            ),
-            valargs if inject_columns else colargs.add(valargs),
+        retvals = values
+        # Combine the columns & values if we're not injecting columns
+        if not inject_columns:
+            retvals = columns
+            retvals += values
+        sql = (
+            f"{Clause.INS} {Clause.INTO}\n  {self.table_name} {insert_sql}\n"
+            f"{Clause.VALS}\n  {values_sql}\n"
+            f"{returning}"
         )
+        return sql, Arguments(retvals)
 
-    def to_sql(
+    def to_sql(  # type: ignore
         self,
-        style: ParamStyleT = DEFAULT_PARAM_STYLE,
-        inject_columns: bool = True,
+        style: ParamStyleT = None,
         offset: int = 1,
-    ) -> Tuple[str, Union[List, Dict]]:
+        *,
+        inject_columns: bool = True,
+    ) -> Tuple[str, Arguments]:
         """Build the SQL INSERT statement and format the list of arguments to pass to the DB client.
 
         Parameters
@@ -642,23 +626,20 @@ class Insert(_BaseWriteStatement):
         The generated SQL INSERT statement
         The arguments to pass to the DB client for secure formatting.
         """
+        style = style or default_style()
         query, args = self.build_insert(
             style, inject_columns=inject_columns, offset=offset
         )
-        return query, args.for_sql(style)
+        return query, args
 
 
 @dataclasses.dataclass(frozen=True)
 class Delete(_BaseWriteStatement):
     """A simple, single-table SQL DELETE Statement."""
 
-    filters: Expressions = dataclasses.field(default_factory=Expressions)
-    joins: Tuple[Join] = dataclasses.field(default_factory=tuple)
-    returns: Field = None
-
     def to_sql(
-        self, style: ParamStyleT = DEFAULT_PARAM_STYLE, offset: int = 1
-    ) -> Tuple[str, Union[List, Dict]]:
+        self, style: ParamStyleT = None, offset: int = 1, **_
+    ) -> Tuple[str, Arguments]:
         """Generate a SQL DELETE statement.
 
         Parameters
@@ -671,12 +652,12 @@ class Delete(_BaseWriteStatement):
         The generated SQL DELETE statement
         The arguments to pass to the DB client for secure formatting.
         """
+        style = default_style()
         where, args = self.filters.to_sql(style=style, offset=offset)
-        joins = "\n,  ".join(j.as_sql for j in self.joins)
-        return (
-            f"DELETE FROM\n  {self.table_name}\n{joins}\n{where}\n{self.returning}",
-            args.for_sql(style),
-        )
+        offset = self.get_offset(args, offset)
+        joins = self.build_joins(style=style, offset=offset, args=args)
+        sql = f"{Clause.DEL} {Clause.FROM} {self.table_name}\n{joins}\n{where}\n{self.returning}"
+        return sql, args
 
 
 SQLStatementT = Union[Select, Insert, Update, Delete]
@@ -685,7 +666,7 @@ SQLStatementT = Union[Select, Insert, Update, Delete]
 FieldDataT = Union[Dict, Collection[Tuple[Hashable, Any]], NamedTuple, Type]
 
 
-def data_to_fields(data: FieldDataT, exclude: Any = Unset) -> Fields:
+def data_to_fields(data: FieldDataT, exclude: Any = ...) -> Fields:
     """Convert a dataclass, NamedTuple, dict, or array of tuples to a FieldList.
 
     Parameters
@@ -700,16 +681,18 @@ def data_to_fields(data: FieldDataT, exclude: Any = Unset) -> Fields:
         if dataclasses.is_dataclass(data):
             filtered = dataclasses.asdict(data, dict_factory=dict_factory)
         elif isnamedtuple(data):
-            filtered = dict_factory(data._asdict())
+            filtered = dict_factory(data._asdict())  # type: ignore
         elif isinstance(data, Mapping) or (
             isinstance(data, Collection)
-            and all((isinstance(x, Tuple) and len(x) == 2) for x in data)
+            and all((isinstance(x, Collection) and len(x) == 2) for x in data)
         ):
             filtered = dict_factory(data)
         else:
             raise SQLValueError(
-                "Data must not be empty and be of type dataclass, namedtuple, mapping, "
+                "Data must be of type dataclass, namedtuple, mapping, "
                 f"or collection of tuples whose len is 2. Provided {type(data)}: {data}"
             )
 
         return Fields((Field(x, y) for x, y in filtered.items()))
+
+    return Fields(())
